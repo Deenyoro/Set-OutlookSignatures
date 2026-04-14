@@ -1,0 +1,80 @@
+# Docker Compose configuration for using pre-built images from GitHub Container Registry
+#
+# Usage:
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# Note: Images are public and don't require authentication
+
+name: set-outlooksignatures
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  sig-deployer:
+    image: ghcr.io/deenyoro/set-outlooksignatures-deployer:latest
+    container_name: kawasig-deployer
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./templates:/opt/templates:ro
+      - deployer-logs:/var/log/sig-deployer
+    networks: [signet]
+    depends_on: [redis]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "pgrep", "cron"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+
+  sig-relay:
+    image: ghcr.io/deenyoro/set-outlooksignatures-relay:latest
+    container_name: kawasig-relay
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${RELAY_SMTP_PORT:-25}:25"
+    volumes:
+      - ./templates:/opt/templates:ro
+      - ./sig-relay/certs:/etc/postfix/certs:ro
+      - relay-logs:/var/log/sig-relay
+    networks: [signet]
+    depends_on: [redis]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 25 && test -S /var/spool/postfix/milter/sig-milter.sock"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: kawasig-redis
+    restart: unless-stopped
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis-data:/data
+    networks: [signet]
+    expose: ["6379"]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  deployer-logs:
+  relay-logs:
+  redis-data:
+
+networks:
+  signet:
+    driver: bridge
