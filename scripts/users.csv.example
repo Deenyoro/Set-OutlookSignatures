@@ -1,0 +1,4 @@
+UserPrincipalName,JobTitle,BusinessPhone,MobilePhone,Department,OfficeLocation,StreetAddress,City,State,PostalCode,Country,CompanyName
+john@treconstruction.net,Project Manager,+1 (412) 555-0100,,Operations,Suite 3A,1800 Pine Hollow Rd,McKees Rocks,PA,15136,US,TRE Construction
+jane@treconstruction.net,Site Superintendent,+1 (412) 555-0200,,Field Operations,Suite 3A,1800 Pine Hollow Rd,McKees Rocks,PA,15136,US,TRE Construction
+dean@kawaconnect.com,Managing Director,+1 (412) 556-7007,,IT Services,,,Coraopolis,PA,,US,KawaConnect LLC

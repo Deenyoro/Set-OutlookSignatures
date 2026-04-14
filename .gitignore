@@ -1,0 +1,15 @@
+DEPLOYMENT.md
+
+# Secrets and runtime artifacts
+.env
+.env.bak.*
+sig-relay/certs/*.pem
+scripts/users.csv
+
+# Caches
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Logs
+*.log
