@@ -1,4 +1,6 @@
-FROM ubuntu:22.04
+# Pull via Google's Docker Hub mirror to avoid anonymous pull rate-limits on
+# shared-IP runners. mirror.gcr.io/library/X is bit-identical to docker.io/library/X.
+FROM mirror.gcr.io/library/ubuntu:22.04
 
 LABEL maintainer="KawaConnect <dean@kawaconnect.com>"
 LABEL description="KawaSig relay — Postfix + Python milter for server-side signature injection"
