@@ -25,6 +25,8 @@ services:
     networks: [signet]
     depends_on: [redis]
     logging: *default-logging
+    mem_limit: ${DEPLOYER_MEM:-1g}
+    mem_reservation: 256m
     healthcheck:
       test: ["CMD", "pgrep", "cron"]
       interval: 60s
@@ -46,6 +48,8 @@ services:
     networks: [signet]
     depends_on: [redis]
     logging: *default-logging
+    mem_limit: ${RELAY_MEM:-2g}
+    mem_reservation: 256m
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 25 && test -S /var/spool/postfix/milter/sig-milter.sock"]
       interval: 30s
@@ -64,6 +68,8 @@ services:
     networks: [signet]
     expose: ["6379"]
     logging: *default-logging
+    mem_limit: 128m
+    mem_reservation: 64m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s

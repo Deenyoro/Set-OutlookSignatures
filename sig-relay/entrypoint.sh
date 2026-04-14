@@ -41,16 +41,27 @@ smtpd_recipient_restrictions =
     check_sender_access hash:/etc/postfix/sender_access,
     reject_unauth_destination
 
-# TLS inbound (from Exchange)
+# TLS inbound (from Exchange). Enforce modern protocols only — TLS 1.0 and
+# 1.1 are deprecated; every MX worth talking to speaks 1.2 by 2026.
 smtpd_use_tls = yes
 smtpd_tls_cert_file = ${RELAY_TLS_CERT}
 smtpd_tls_key_file = ${RELAY_TLS_KEY}
 smtpd_tls_security_level = may
+smtpd_tls_protocols = >=TLSv1.2
+smtpd_tls_mandatory_protocols = >=TLSv1.2
+smtpd_tls_ciphers = high
+smtpd_tls_mandatory_ciphers = high
 smtpd_tls_loglevel = 1
 smtpd_tls_received_header = yes
 
-# TLS outbound (to destination MX)
+# TLS outbound (to destination MX). Same protocol floor; still opportunistic
+# (may) — a receiver that can't speak TLS 1.2 gets plaintext rather than a
+# delivery failure.
 smtp_tls_security_level = may
+smtp_tls_protocols = >=TLSv1.2
+smtp_tls_mandatory_protocols = >=TLSv1.2
+smtp_tls_ciphers = high
+smtp_tls_mandatory_ciphers = high
 smtp_tls_loglevel = 1
 
 # Preserve MIME structure end-to-end. Without this, postfix's cleanup may
@@ -72,6 +83,14 @@ maillog_file = /var/log/sig-relay/postfix.log
 message_size_limit = ${MAX_MESSAGE_SIZE:-157286400}
 maximal_queue_lifetime = 1d
 bounce_queue_lifetime = 1d
+
+# Per-source rate limits so a single rogue host can't exhaust the relay.
+# These apply to ALL clients including Exchange — set high enough that normal
+# EOP traffic is never throttled, low enough that a bad actor is slowed.
+anvil_rate_time_unit = 60s
+smtpd_client_connection_count_limit = ${SMTPD_CONN_LIMIT:-50}
+smtpd_client_connection_rate_limit = ${SMTPD_CONN_RATE:-300}
+smtpd_client_message_rate_limit = ${SMTPD_MSG_RATE:-600}
 EOF
 
 # ---- Allow senders from any MANAGED_DOMAINS — regardless of source IP ----

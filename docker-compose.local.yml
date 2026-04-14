@@ -18,6 +18,9 @@ services:
     networks: [signet]
     depends_on: [redis]
     logging: *default-logging
+    # PowerShell + .NET can spike during cron runs; give it room.
+    mem_limit: ${DEPLOYER_MEM:-1g}
+    mem_reservation: 256m
     healthcheck:
       test: ["CMD", "pgrep", "cron"]
       interval: 60s
@@ -41,6 +44,13 @@ services:
     networks: [signet]
     depends_on: [redis]
     logging: *default-logging
+    # Milter holds full message body in RAM per concurrent connection.
+    # At MAX_MESSAGE_SIZE=150MB with SMTPD_CONN_LIMIT=50 concurrent the
+    # worst case is ~7.5GB; default limit is 2GB (plenty for typical
+    # ~1-5MB messages × 50 concurrent). Raise via RELAY_MEM in .env if
+    # you really do see 150MB attachments at concurrency.
+    mem_limit: ${RELAY_MEM:-2g}
+    mem_reservation: 256m
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 25 && test -S /var/spool/postfix/milter/sig-milter.sock"]
       interval: 30s
@@ -59,6 +69,9 @@ services:
     networks: [signet]
     expose: ["6379"]
     logging: *default-logging
+    # Matches maxmemory 64mb in redis.conf, plus a little headroom for RSS.
+    mem_limit: 128m
+    mem_reservation: 64m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 30s
