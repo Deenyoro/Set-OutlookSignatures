@@ -1,12 +1,22 @@
 name: Build and Push Docker Images
 
+# Tag-push driven release workflow.
+#
+# Images are rebuilt and published ONLY when:
+#   1. A tag matching `v*` is pushed  (e.g. v1.2.3, v2026.04.14)
+#   2. The workflow is dispatched manually from the Actions UI
+#
+# Pushes to main no longer trigger a build — cut down on churn, no half-baked
+# "latest" images chasing work-in-progress commits. To cut a release:
+#     git tag v0.2.0 && git push origin v0.2.0
+#
+# For a one-off rebuild of the current main tip without tagging, use:
+#     Actions tab → Build and Push Docker Images → Run workflow
+
 on:
   push:
-    branches: [master, main]
     tags:
       - 'v*'
-  pull_request:
-    branches: [master, main]
   workflow_dispatch:
 
 env:
@@ -14,25 +24,7 @@ env:
   IMAGE_PREFIX: ${{ github.repository_owner }}/set-outlooksignatures
 
 jobs:
-  changes:
-    runs-on: set-outlooksignatures
-    outputs:
-      deployer: ${{ steps.filter.outputs.deployer }}
-      relay: ${{ steps.filter.outputs.relay }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            deployer:
-              - 'sig-deployer/**'
-              - 'src_Set-OutlookSignatures/**'
-            relay:
-              - 'sig-relay/**'
-
   build-and-push:
-    needs: changes
     runs-on: set-outlooksignatures
     permissions:
       contents: read
@@ -43,41 +35,21 @@ jobs:
       matrix:
         service:
           - name: deployer
-            context: .
             dockerfile: sig-deployer/Dockerfile
-            change_key: deployer
           - name: relay
-            context: .
             dockerfile: sig-relay/Dockerfile
-            change_key: relay
 
     steps:
-      - name: Check if build needed
-        id: should_build
-        run: |
-          FORCE="${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}"
-          CHANGED="${{ needs.changes.outputs[matrix.service.change_key] }}"
-          if [[ "$FORCE" == "true" || "$CHANGED" == "true" ]]; then
-            echo "build=true" >> $GITHUB_OUTPUT
-          else
-            echo "build=false" >> $GITHUB_OUTPUT
-            echo "Skipping ${{ matrix.service.name }} — no changes detected"
-          fi
-
       - name: Checkout repository
-        if: steps.should_build.outputs.build == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        if: steps.should_build.outputs.build == 'true'
         uses: docker/setup-buildx-action@v3
 
-      # Authenticate to Docker Hub so any docker.io pull gets the 200/6h
-      # authenticated limit. Base images already come via mirror.gcr.io
-      # (no rate limit) — this login is the safety net for any transitive
-      # layer / cache pull and any future non-mirrored image.
+      # Docker Hub auth — higher rate limit for any docker.io pull during
+      # build. Base images already come via mirror.gcr.io (no rate limit),
+      # so this is a safety net for transitive / cache pulls.
       - name: Log in to Docker Hub
-        if: steps.should_build.outputs.build == 'true' && github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: docker.io
@@ -85,7 +57,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GitHub Container Registry
-        if: steps.should_build.outputs.build == 'true' && github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -93,26 +64,26 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
-        if: steps.should_build.outputs.build == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}
+          # Tags applied to the pushed image:
+          #   * semver from the git tag (1.2.3 + 1.2 for v1.2.3)
+          #   * short sha (so the exact build is always pinnable)
+          #   * latest — updates on every tag push and on manual dispatch
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
 
-      - name: Build and push Docker image
-        if: steps.should_build.outputs.build == 'true'
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.service.context }}
+          context: .
           file: ${{ matrix.service.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service.name }}
