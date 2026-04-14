@@ -139,14 +139,24 @@ sudo cp /etc/letsencrypt/live/<host>/privkey.pem   sig-relay/certs/
 sudo chmod 644 sig-relay/certs/fullchain.pem
 sudo chmod 600 sig-relay/certs/privkey.pem
 
-# 4. Build + start
-docker compose up -d --build
+# 4. Start — pick ONE of these two paths:
+
+#  (a) Pre-built images from GitHub Container Registry (recommended, fastest)
+docker compose -f docker-compose.ghcr.yml up -d
+
+#  (b) Build locally (use when you have local template/Dockerfile changes)
+docker compose -f docker-compose.local.yml up -d --build
 # or: ./scripts/build-and-up.sh
 
-# 5. Verify
+# 5. Verify (works regardless of which path above)
 docker compose ps
 docker compose logs -f
 ```
+
+The two compose files define the same three services, same volumes, same
+networks, same healthchecks — they differ only in `image:` vs `build:`. If
+you're publishing changes to the images via the GitHub Actions workflow,
+future pulls with `.ghcr.yml` will get the updated images automatically.
 
 Hardware: 2 vCPU, 2 GB RAM, 20 GB disk minimum. Ports: inbound 25 (from Exchange Online),
 outbound 25 (to destination MX), outbound 443 (Graph + OAuth). Verify your hosting
@@ -369,7 +379,7 @@ cp "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "${CERT_DIR}/fullchain.pem"
 cp "/etc/letsencrypt/live/${DOMAIN}/privkey.pem"  "${CERT_DIR}/privkey.pem"
 chmod 644 "${CERT_DIR}/fullchain.pem"
 chmod 600 "${CERT_DIR}/privkey.pem"
-docker compose -f /opt/kawasig/docker-compose.yml restart sig-relay
+cd /opt/kawasig && docker compose -f docker-compose.local.yml restart sig-relay   # or .ghcr.yml
 EOF
 sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/kawasig.sh
 sudo certbot renew --dry-run
@@ -498,15 +508,23 @@ server-side.
 
 ## 10. Operations
 
-```bash
-docker compose ps                              # status of all 3 containers
-docker compose logs -f                         # tail everything
-docker compose logs -f sig-relay               # tail relay only
-docker compose logs --tail=200 sig-deployer    # last 200 lines of deployer
+Pick one of the two compose files depending on whether you're pulling
+pre-built images or building locally:
 
-docker compose restart sig-deployer sig-relay  # re-read .env / templates
-docker compose down                            # stop everything
-docker compose up -d --build                   # rebuild and restart
+```bash
+# Aliasing makes the rest of this section short. Choose the path you deploy from:
+alias kc='docker compose -f docker-compose.ghcr.yml'    # pre-built from GHCR
+# alias kc='docker compose -f docker-compose.local.yml' # build locally
+
+kc ps                              # status of all 3 containers
+kc logs -f                         # tail everything
+kc logs -f sig-relay               # tail relay only
+kc logs --tail=200 sig-deployer    # last 200 lines of deployer
+
+kc restart sig-deployer sig-relay  # re-read .env / templates
+kc down                            # stop everything
+kc pull && kc up -d                # pull newer GHCR images and redeploy
+kc up -d --build                   # (local file only) rebuild + redeploy
 
 # Force a deployer run NOW (don't wait for the cron)
 docker exec kawasig-deployer /opt/run-deploy.sh
@@ -593,7 +611,7 @@ notifications. The script checks all three containers and probes SMTP on port 25
 | Relay log: `Token acquisition failed`              | Wrong CLIENT_ID/SECRET/TENANT_ID. Verify `.env` matches Entra portal.                             |
 | Relay log: `User not found in Graph`               | User email doesn't match Entra UPN. Check `mail` vs `userPrincipalName` in Entra.                 |
 | Relay log: `No template for domain`                | Missing `templates/relay/<domain>.html`. Filename must equal the domain (lowercase).              |
-| Relay log: `Loaded template for <domain> (0 bytes)` | Template file exists but is empty. Check `templates/relay/<domain>.html`, rewrite, `docker compose restart sig-relay`. |
+| Relay log: `Loaded template for <domain> (0 bytes)` | Template file exists but is empty. Check `templates/relay/<domain>.html`, rewrite, `docker compose -f docker-compose.local.yml restart sig-relay`. |
 | Signature has blank fields                         | Entra user profile fields empty. See `update-users.ps1`.                                          |
 | Deployer logs nothing useful, exits code 14        | `Problem connecting to Microsoft Graph`. Check TENANT_ID / CLIENT_ID / CLIENT_SECRET. MSAL `validate_authority=False` is off for the milter, so the error is loud there; deployer validates through Set-OutlookSignatures. |
 | Deployer runs but no signatures are deployed       | Check `_Signatures.ini` — tags must be bare (`DefaultNew`, not `DefaultNew = X`). Filter matching is LITERAL: use Entra group `EntraID <name>@<domain>` or explicit user emails, NOT domain wildcards. |
@@ -606,8 +624,9 @@ notifications. The script checks all three containers and probes SMTP on port 25
 | Relay not injecting for some client (e.g. iOS)     | Reply-boundary regex doesn't match. Inspect `sig-relay/milter/body_parser.py` and add a pattern.  |
 | sig-deployer exits with code 14                    | "Problem connecting to Microsoft Graph" — placeholder credentials, or app permissions not granted. |
 | sig-deployer hangs ~120s on startup                | Set-OutlookSignatures shows a free-tier "welcome" splash; clears automatically.                   |
-| Redis connection refused                           | `docker compose up -d redis`.                                                                     |
-| Build fails: `No space left on device`             | `docker system prune -af` and free disk; `docker compose build` needs ~2GB.                       |
+| Redis connection refused                           | `docker compose -f docker-compose.ghcr.yml up -d redis` (or `.local.yml`).                        |
+| Build fails: `No space left on device`             | `docker system prune -af` and free disk; `docker compose -f docker-compose.local.yml build` needs ~2GB free. Or use `.ghcr.yml` to pull pre-built images instead. |
+| `docker compose up` says `no configuration file found` | There is no bare `docker-compose.yml` — use `-f docker-compose.ghcr.yml` or `-f docker-compose.local.yml`. |
 
 ---
 
